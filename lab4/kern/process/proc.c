@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-
+#include <riscv.h>
 /* ------------- process/thread mechanism design&implementation -------------
 (an simplified Linux process/thread mechanism )
 introduction:
@@ -187,37 +187,41 @@ get_pid(void)
 
 // proc_run - make process "proc" running on cpu
 // NOTE: before call switch_to, should load  base addr of "proc"'s new PDT
-void proc_run(struct proc_struct *proc)
-{
-    if (proc != current)
-    {
+void proc_run(struct proc_struct *proc) {
+    if (proc != current) {
         // LAB4:EXERCISE3 YOUR CODE
         /*
          * Some Useful MACROs, Functions and DEFINEs, you can use them in below implementation.
          * MACROs or Functions:
          *   local_intr_save():        Disable interrupts
          *   local_intr_restore():     Enable Interrupts
-         *   lsatp():                   Modify the value of satp register
+         *   lcr3():                   Modify the value of CR3 register
          *   switch_to():              Context switching between two processes
          */
 
-        // 2. 禁用中断
+        // 1. 检查要切换的进程是否与当前正在运行的进程相同，如果相同则不需要切换。
+        // 2. 禁用中断。你可以使用/kern/sync/sync.h中定义好的宏local_intr_save(x)和local_intr_restore(x)来实现关、开中断。
         bool intr_flag;
         local_intr_save(intr_flag);
         
-        // 3. 切换当前进程为要运行的进程
+        // 3. 切换当前进程为要运行的进程。
         struct proc_struct *prev = current;
+        struct proc_struct *next = proc;
         current = proc;
         
-        // 4. 切换页表，以便使用新进程的地址空间
-        if (proc->pgdir != 0) {
-            lsatp((unsigned int)proc->pgdir);
+        // 4. 切换页表，以便使用新进程的地址空间。/libs/riscv.h中提供了lcr3(unsigned int cr3)函数，可实现修改CR3寄存器值的功能。
+        // 注意：在 RISC-V 中，应该使用 satp 寄存器而不是 CR3
+        if (next->pgdir != 0) {
+            // 在 RISC-V 中设置页表寄存器 satp
+            write_csr(satp, 0x8000000000000000 | ((uintptr_t)next->pgdir >> RISCV_PGSHIFT));
+            // 刷新 TLB
+            asm volatile("sfence.vma zero, zero");
         }
         
-        // 5. 实现上下文切换
-        switch_to(&(prev->context), &(proc->context));
+        // 5. 实现上下文切换。/kern/process中已经预先编写好了switch.S，其中定义了switch_to()函数。可实现两个进程的context切换。
+        switch_to(&(prev->context), &(next->context));
         
-        // 6. 允许中断
+        // 6. 允许中断。
         local_intr_restore(intr_flag);
     }
 }
