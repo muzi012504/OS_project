@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
-#include <riscv.h>
+
 /* ------------- process/thread mechanism design&implementation -------------
 (an simplified Linux process/thread mechanism )
 introduction:
@@ -104,23 +104,19 @@ alloc_proc(void)
          *       uint32_t flags;                             // Process flag
          *       char name[PROC_NAME_LEN + 1];               // Process name
          */
-        
-        proc->state = PROC_UNINIT;          // 初始化进程状态为未初始化
-        proc->pid = -1;                     // 初始化进程ID为-1，稍后分配
-        proc->runs = 0;                     // 初始化运行次数为0
-        proc->kstack = 0;                   // 初始化内核栈地址为0
-        proc->need_resched = 0;         // 初始化不需要重新调度
-        proc->parent = NULL;                // 初始化父进程为空
-        proc->mm = NULL;                    // 初始化内存管理结构为空
-        memset(&proc->context, 0, sizeof(struct context));  // 初始化上下文为0
-        proc->tf = NULL;                    // 初始化陷阱帧为空
-        proc->pgdir = 0;                    // 初始化页目录表基址为0
-        proc->flags = 0;                    // 初始化进程标志为0
-        memset(proc->name, 0, PROC_NAME_LEN + 1);  // 初始化进程名称为空字符串
-        proc->list_link.prev = NULL;        // 初始化进程链表前驱
-        proc->list_link.next = NULL;        // 初始化进程链表后继
-        proc->hash_link.prev = NULL;        // 初始化哈希链表前驱
-        proc->hash_link.next = NULL;        // 初始化哈希链表后继
+
+        proc->state = PROC_UNINIT; //进程状态为未初始化
+        proc->pid = -1; //进程ID为-1
+        proc->runs = 0; //运行次数为0
+        proc->kstack = 0; //内核栈地址为0
+        proc->need_resched = 0; //不需要重新调度
+        proc->parent = NULL; //父进程为空
+        proc->mm = NULL; //内存管理结构为空
+        memset(&proc->context, 0, sizeof(struct context)); //初始化上下文为0
+        proc->tf = NULL; //陷阱帧为空
+        proc->pgdir = boot_pgdir_pa; 
+        proc->flags = 0; //进程标志为0
+        memset(proc->name, 0, PROC_NAME_LEN + 1); //进程名称为空字符串
     }
     return proc;
 }
@@ -203,12 +199,12 @@ void proc_run(struct proc_struct *proc) {
         // 2. 禁用中断。你可以使用/kern/sync/sync.h中定义好的宏local_intr_save(x)和local_intr_restore(x)来实现关、开中断。
         bool intr_flag;
         local_intr_save(intr_flag);
-        
+
         // 3. 切换当前进程为要运行的进程。
         struct proc_struct *prev = current;
         struct proc_struct *next = proc;
         current = proc;
-        
+
         // 4. 切换页表，以便使用新进程的地址空间。/libs/riscv.h中提供了lcr3(unsigned int cr3)函数，可实现修改CR3寄存器值的功能。
         // 注意：在 RISC-V 中，应该使用 satp 寄存器而不是 CR3
         if (next->pgdir != 0) {
@@ -217,14 +213,15 @@ void proc_run(struct proc_struct *proc) {
             // 刷新 TLB
             asm volatile("sfence.vma zero, zero");
         }
-        
+
         // 5. 实现上下文切换。/kern/process中已经预先编写好了switch.S，其中定义了switch_to()函数。可实现两个进程的context切换。
         switch_to(&(prev->context), &(next->context));
-        
+
         // 6. 允许中断。
         local_intr_restore(intr_flag);
     }
 }
+
 
 // forkret -- the first kernel entry point of a new thread/process
 // NOTE: the addr of forkret is setted in copy_thread function
@@ -353,36 +350,49 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
      *   nr_process:   the number of process set
      */
 
-    
-    proc = alloc_proc();
-    if (proc == NULL) {
+
+    // 1. 分配并初始化新进程控制块
+     proc = alloc_proc();
+    if (proc == NULL) { // 分配失败
         goto fork_out;
     }
-    
+
+    // 2. 为进程分配一个内核栈
     ret = setup_kstack(proc);
-    if (ret != 0) {
+    if (ret != 0) { // 设置失败
         goto bad_fork_cleanup_proc;
     }
 
+    // 3. 复制原进程的内存管理信息到新进程
     ret = copy_mm(clone_flags, proc);
-    if (ret != 0) {
+    if (ret != 0) { // 内存管理复制失败
         goto bad_fork_cleanup_kstack;
     }
 
+    // 4. 复制原进程上下文到新进程
     copy_thread(proc, stack, tf);
     proc->pid = get_pid();
     hash_proc(proc);
-    list_add(&proc_list, &(proc->list_link));
-    nr_process++;
 
+    // 5. 将新进程添加到进程列表
+    list_add(&proc_list, &(proc->list_link));
+    nr_process++; // 增加系统进程计数
+
+    // 6. 唤醒新进程
+    // 将新进程状态设置为可运行状态，使其可以被调度器选中执行
     wakeup_proc(proc);
+
+    // 7. 返回新进程号
     ret = proc->pid;
-    
-fork_out:
+
+fork_out: 
     return ret;
 
+// 错误处理标签：按分配的逆序释放资源
 bad_fork_cleanup_kstack:
     put_kstack(proc);
+
+// 清理进程控制块
 bad_fork_cleanup_proc:
     kfree(proc);
     goto fork_out;
