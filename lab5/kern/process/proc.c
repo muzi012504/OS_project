@@ -120,7 +120,7 @@ alloc_proc(void)
         proc->flags = 0; //进程标志为0
         memset(proc->name, 0, PROC_NAME_LEN + 1); //进程名称为空字符串
 
-        // LAB5 YOUR CODE : (update LAB4 steps)
+        // LAB5 YOUR CODE : 2210588
         /*
          * below fields(add in LAB5) in proc_struct need to be initialized
          *       uint32_t wait_state;                        // waiting state
@@ -471,7 +471,7 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
     //    5. insert proc_struct into hash_list && proc_list
     //    6. call wakeup_proc to make the new child process RUNNABLE
     //    7. set ret vaule using child proc's pid// 1. 分配并初始化新进程控制块
-     proc = alloc_proc();
+    proc = alloc_proc();
     if (proc == NULL) { // 分配失败
         goto fork_out;
     }
@@ -506,7 +506,7 @@ int do_fork(uint32_t clone_flags, uintptr_t stack, struct trapframe *tf)
     // 7. 返回新进程号
     ret = proc->pid;
 
-    // LAB5 YOUR CODE : (update LAB4 steps)
+    // LAB5 YOUR CODE : 2312170
     // TIPS: you should modify your written code in lab4(step1 and step5), not add more code.
     /* Some Functions
      *    set_links:  set the relation links of process.  ALSO SEE: remove_links:  lean the relation links of process
@@ -742,7 +742,7 @@ load_icode(unsigned char *binary, size_t size)
     // Keep sstatus
     uintptr_t sstatus = tf->status;
     memset(tf, 0, sizeof(struct trapframe));
-    /* LAB5:EXERCISE1 YOUR CODE
+    /* LAB5:2312170
      * should set tf->gpr.sp, tf->epc, tf->status
      * NOTICE: If we set trapframe correctly, then the user level process can return to USER MODE from kernel. So
      *          tf->gpr.sp should be user stack top (the value of sp)
