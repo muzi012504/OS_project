@@ -586,60 +586,41 @@ sfs_io_nolock(struct sfs_fs *sfs, struct sfs_inode *sin, void *buf, off_t offset
     int ret = 0;
     size_t size, alen = 0;
     uint32_t ino;
-    uint32_t blkno = offset / SFS_BLKSIZE;          // The NO. of Rd/Wr begin block
-    uint32_t nblks = endpos / SFS_BLKSIZE - blkno;  // The size of Rd/Wr blocks
+    uint32_t blkno = offset / SFS_BLKSIZE; // The NO. of Rd/Wr begin block
+    char *data = (char *)buf;
+    off_t cur = offset;
 
-  //LAB8:EXERCISE1 YOUR CODE HINT: call sfs_bmap_load_nolock, sfs_rbuf, sfs_rblock,etc. read different kind of blocks in file
-	/*
-	 * (1) If offset isn't aligned with the first block, Rd/Wr some content from offset to the end of the first block
-	 *       NOTICE: useful function: sfs_bmap_load_nolock, sfs_buf_op
-	 *               Rd/Wr size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset)
-	 * (2) Rd/Wr aligned blocks 
-	 *       NOTICE: useful function: sfs_bmap_load_nolock, sfs_block_op
-     * (3) If end position isn't aligned with the last block, Rd/Wr some content from begin to the (endpos % SFS_BLKSIZE) of the last block
-	 *       NOTICE: useful function: sfs_bmap_load_nolock, sfs_buf_op	
-	*/
+    if (write && blkno > din->blocks) {
+        uint32_t gap = din->blocks;
+        while (gap < blkno) {
+            if ((ret = sfs_bmap_load_nolock(sfs, sin, gap, NULL)) != 0) {
+                goto out;
+            }
+            gap ++;
+        }
+    }
 
-    blkoff = offset % SFS_BLKSIZE;
-    if (blkoff != 0) {
-        size = (nblks != 0) ? (SFS_BLKSIZE - blkoff) : (endpos - offset);
-        
-        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
+    while (cur < endpos) {
+        blkoff = cur % SFS_BLKSIZE;
+        size = SFS_BLKSIZE - blkoff;
+        if (cur + size > endpos) {
+            size = endpos - cur;
+        }
+        if ((ret = sfs_bmap_load_nolock(sfs, sin, cur / SFS_BLKSIZE, &ino)) != 0) {
             goto out;
         }
-        if ((ret = sfs_buf_op(sfs, buf, size, ino, blkoff)) != 0) {
+        if (size == SFS_BLKSIZE) {
+            ret = sfs_block_op(sfs, data, ino, 1);
+        }
+        else {
+            ret = sfs_buf_op(sfs, data, size, ino, blkoff);
+        }
+        if (ret != 0) {
             goto out;
         }
+        cur += size;
+        data += size;
         alen += size;
-        if (nblks == 0) {
-            goto out;
-        }
-        buf += size;
-        blkno++;
-        nblks--;
-    }
-
-    while (nblks != 0) {
-        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
-            goto out;
-        }
-        if ((ret = sfs_block_op(sfs, buf, ino, 1)) != 0) {
-            goto out;
-        }
-        alen += SFS_BLKSIZE;
-        buf += SFS_BLKSIZE;
-        blkno++;
-        nblks--;
-    }
-
-    if (endpos % SFS_BLKSIZE != 0) {
-        if ((ret = sfs_bmap_load_nolock(sfs, sin, blkno, &ino)) != 0) {
-            goto out;
-        }
-        if ((ret = sfs_buf_op(sfs, buf, endpos % SFS_BLKSIZE, ino, 0)) != 0) {
-            goto out;
-        }
-        alen += endpos % SFS_BLKSIZE;
     }
 
 out:
